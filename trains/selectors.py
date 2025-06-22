@@ -2,7 +2,7 @@ from datetime import date
 from django.utils import timezone
 from django.db.models import QuerySet
 from django.db.models.query import Prefetch
-from trains.models import RouteSchedule, RouteStation, Route, Train, Station
+from trains.models import Schedule, Stop
 from bookings.models import Booking
 
 
@@ -18,22 +18,22 @@ class RouteSelectors:
     pass
 
 
-class RouteStationSelectors:
+class StopSelectors:
     pass
 
 
-class RouteScheduleSelectors:
+class ScheduleSelectors:
 
     @staticmethod
-    def get_schedule_details_queryset(
-        main_filters: dict,
+    def get_schedule_complete_details_queryset(
         journey_date: date,
+        stop_filters: dict = {},
+        main_filters: dict = {},
         booking_filters: dict = {},
-        route_station_filters: dict = {},
-    ) -> QuerySet[RouteSchedule]:
+    ) -> QuerySet[Schedule]:
         new_main_filters = { **main_filters }
+        new_stop_filters = { **stop_filters }
         new_booking_filters = { **booking_filters }
-        new_route_station_filters = { **route_station_filters }
         
         now = timezone.now().date()
         if journey_date < now:
@@ -43,19 +43,19 @@ class RouteScheduleSelectors:
         new_booking_filters['journey_date'] = journey_date
 
         return (
-            RouteSchedule.objects.filter(**new_main_filters)
+            Schedule.objects.filter(**new_main_filters)
             .select_related('route__train').prefetch_related(
                 Prefetch(   
-                    'route__route_stations_of_route',
-                    queryset=RouteStation.objects.filter(
-                        **new_route_station_filters
+                    'route__stops_of_route',
+                    queryset=Stop.objects.filter(
+                        **new_stop_filters
                     ).select_related('station').order_by('order'),
                 ),
                 Prefetch(
-                    'bookings_of_route_schedule',
+                    'bookings_of_schedule',
                     queryset=Booking.objects.filter(
                         **new_booking_filters
-                    ).select_related('user', 'from_route_station', 'to_route_station'),
+                    ).select_related('user', 'from_stop', 'to_stop'),
                 )
             ).distinct()
         )

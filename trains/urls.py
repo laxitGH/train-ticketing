@@ -1,7 +1,7 @@
 from django.urls import path
-from trains.views import train_search_view, train_availability_status_view
+from trains.views import journey_search_view, journey_details_view
 
 urlpatterns = [
-    path('search/', train_search_view, name='train-search'),
-    path('availability-status/', train_availability_status_view, name='train-availability-status'),
+    path('search/', journey_search_view, name='journey-search'),
+    path('details/', journey_details_view, name='journey-details'),
 ]

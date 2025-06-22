@@ -1,168 +1,240 @@
-from datetime import date
-from dataclasses import dataclass
+from django.utils import timezone
 from bookings.models import Booking
-from dataclasses_json import dataclass_json
-from trains.models import RouteStation, RouteSchedule
-from trains.model_utils import RouteScheduleModelUtils, RouteModelUtils, RouteScheduleBookingWindowsData, RouteScheduleSeatAvailabilityData 
-from trains.selectors import RouteScheduleSelectors
-from utils.enums import BookingType
+from trains.models import Stop, Schedule
+from datetime import date, datetime, timedelta
+from trains.selectors import ScheduleSelectors
+from trains.model_utils import RouteModelUtils
+from utils.enums import BookingStatus, BookingType
+from trains.dataclasses import JourneyDetailsServiceDataclasses, JourneySearchServiceDataclasses
 
 
-class TrainSearchService:
+class JourneyDetailsService:
+    def __init__(self, input: JourneyDetailsServiceDataclasses.Input):
+        self.schedule = input.schedule
+        self.journey_date = input.journey_date
+        self.destination_stop = input.destination_stop
+        self.source_stop = input.source_stop
 
-    @dataclass_json
-    @dataclass
-    class Input:
-        journey_date: date
-        source_station_code: str
-        destination_station_code: str        
+        self.seat_details: JourneyDetailsServiceDataclasses.SeatDetails | None = None
+        self.journey_details: JourneyDetailsServiceDataclasses.GeneralDetails | None = None
+        self.booking_window_details: JourneyDetailsServiceDataclasses.BookingWindowDetails | None = None
 
-    @staticmethod
-    def search_trains(input: Input) -> list[RouteSchedule]:
-        main_filters = dict(
-            route__route_stations_of_route__station__code__in=[input.source_station_code, input.destination_station_code],
+    def get_complete_details(self, journey_bookings: list[Booking]) -> JourneyDetailsServiceDataclasses.CompleteDetails:
+        self.booking_window_details = self.get_booking_window_details()
+        self.seat_details = self.get_seat_details(journey_bookings)
+        self.journey_details = self.get_journey_details()
+
+        return JourneyDetailsServiceDataclasses.CompleteDetails(
+            booking_window_details=self.booking_window_details,
+            general_details=self.journey_details,
+            seat_details=self.seat_details,
         )
-        route_schedules_queryset = RouteScheduleSelectors.get_schedule_details_queryset(
-            journey_date=input.journey_date,
-            main_filters=main_filters,
+
+    def get_seat_details(self, journey_bookings: list[Booking]) -> JourneyDetailsServiceDataclasses.SeatDetails:
+        if self.seat_details:
+            return self.seat_details
+        
+        self.get_booking_window_details()
+        total_seats = self.schedule.route.total_seats
+        tatkal_seats = self.schedule.route.tatkal_seats
+        general_seats = self.schedule.route.general_seats
+
+        overlapping_bookings: list[Booking] = []
+        for booking in journey_bookings:
+            booking_to_order = booking.to_stop.order
+            booking_from_order = booking.from_stop.order
+            if max(self.source_stop.order, booking_from_order) < min(self.destination_stop.order, booking_to_order):
+                overlapping_bookings.append(booking)
+
+        waiting_general_seats = 0
+        confirmed_tatkal_seats = 0
+        confirmed_general_seats = 0
+        cancelled_general_seats = 0
+        
+        for booking in overlapping_bookings:
+            if booking.type == BookingType.GENERAL.value:
+                if booking.status == BookingStatus.CONFIRMED.value:
+                    confirmed_general_seats += 1
+                elif booking.status == BookingStatus.WAITING.value:
+                    waiting_general_seats += 1
+                elif booking.status == BookingStatus.CANCELLED.value:
+                    cancelled_general_seats += 1
+            elif booking.type == BookingType.TATKAL.value:
+                if booking.status == BookingStatus.CONFIRMED.value:
+                    confirmed_tatkal_seats += 1
+
+        if self.booking_window_details.tatkal_booking_open:
+            available_tatkal_seats = (tatkal_seats - confirmed_tatkal_seats)
+            available_tatkal_seats += (general_seats - confirmed_general_seats)
+            available_general_seats = 0
+        elif self.booking_window_details.general_booking_open:
+            available_tatkal_seats = 0
+            available_general_seats = (general_seats - confirmed_general_seats)
+        else:
+            available_tatkal_seats = 0
+            available_general_seats = 0
+
+        seats = JourneyDetailsServiceDataclasses.SeatAvailability(
+            general=general_seats,
+            tatkal=tatkal_seats,
+        )
+        available_seats = JourneyDetailsServiceDataclasses.SeatAvailability(
+            general=available_general_seats,
+            tatkal=available_tatkal_seats,
+        )
+        confirmed_seats = JourneyDetailsServiceDataclasses.SeatAvailability(
+            general=confirmed_general_seats,
+            tatkal=confirmed_tatkal_seats,
+        )
+        cancelled_seats = JourneyDetailsServiceDataclasses.SeatAvailability(
+            general=cancelled_general_seats,
+        )
+        waiting_seats = JourneyDetailsServiceDataclasses.SeatAvailability(
+            general=waiting_general_seats,
+        )
+        
+        self.seat_details = JourneyDetailsServiceDataclasses.SeatDetails(
+            seats=seats,
+            total=total_seats,
+            available_seats=available_seats,
+            confirmed_seats=confirmed_seats,
+            cancelled_seats=cancelled_seats,
+            waiting_seats=waiting_seats,
         )
 
-        valid_schedules: list[RouteSchedule] = []
-        for schedule in route_schedules_queryset:
+        return self.seat_details
+
+    def get_booking_window_details(self) -> JourneyDetailsServiceDataclasses.BookingWindowDetails:
+        if self.booking_window_details:
+            return self.booking_window_details
+        
+        now = timezone.now()
+        departure_datetime = timezone.make_aware(datetime.combine(self.journey_date, self.schedule.departure_time))
+        departure_datetime = departure_datetime + timedelta(minutes=self.source_stop.departure_minutes_from_source)
+        general_booking_opening_datetime = departure_datetime - timedelta(days=120)
+        general_booking_closing_datetime = departure_datetime - timedelta(hours=4)
+        
+        tatkal_booking_opening_datetime = departure_datetime - timedelta(hours=2)
+        tatkal_booking_closing_datetime = departure_datetime - timedelta(hours=2, minutes=-10)
+        
+        self.booking_window_details = JourneyDetailsServiceDataclasses.BookingWindowDetails(
+            departure_datetime=departure_datetime,
+            tatkal_booking_opening_datetime=tatkal_booking_opening_datetime,
+            tatkal_booking_closing_datetime=tatkal_booking_closing_datetime,
+            general_booking_opening_datetime=general_booking_opening_datetime,
+            general_booking_closing_datetime=general_booking_closing_datetime,
+            general_booking_open=general_booking_opening_datetime <= now <= general_booking_closing_datetime,
+            tatkal_booking_open=tatkal_booking_opening_datetime <= now <= tatkal_booking_closing_datetime,
+        )
+
+        return self.booking_window_details
+
+    def get_journey_details(self) -> JourneyDetailsServiceDataclasses.GeneralDetails:
+        if self.journey_details:
+            return self.journey_details
+        
+        journey_duration_minutes = RouteModelUtils.get_total_duration_minutes(
+            source_stop=self.source_stop,
+            destination_stop=self.destination_stop,
+        )
+        journey_distance_kms = RouteModelUtils.get_total_distance_kms(
+            source_stop=self.source_stop,
+            destination_stop=self.destination_stop,
+        )
+
+        stops_of_route: list[Stop] = list(self.schedule.route.stops_of_route.all())
+        route_total_distance_kms = RouteModelUtils.get_total_distance_kms(
+            stops_of_route=stops_of_route,
+        )
+
+        general_pricing = (journey_distance_kms / route_total_distance_kms) * self.schedule.route.general_price
+        tatkal_pricing = (journey_distance_kms / route_total_distance_kms) * self.schedule.route.tatkal_price
+        pricing = JourneyDetailsServiceDataclasses.Pricing(
+            general=general_pricing,
+            tatkal=tatkal_pricing,
+        )
+
+        self.journey_details = JourneyDetailsServiceDataclasses.GeneralDetails(
+            duration_minutes=journey_duration_minutes,
+            distance_kms=journey_distance_kms,
+            pricing=pricing,
+        )
+
+        return self.journey_details
+
+
+class JourneySearchService:
+    def __init__(self, input: JourneySearchServiceDataclasses.Input):
+        self.journey_date = input.journey_date
+        self.source_station_code = input.source_station_code
+        self.destination_station_code = input.destination_station_code
+
+    def search_journeys(
+        self, 
+        main_filters: dict = {},
+        stop_filters: dict = {},
+        booking_filters: dict = {},
+        journey_date: date | None = None,
+    ) -> list[JourneySearchServiceDataclasses.Output]:
+        journey_date = journey_date or self.journey_date
+        
+        new_main_filters = { **main_filters }
+        new_stop_filters = { **stop_filters }
+        new_booking_filters = { **booking_filters }
+
+        if not main_filters:
+            new_main_filters = dict(route__stops_of_route__station__code__in=[self.source_station_code, self.destination_station_code])
+        
+        schedules_queryset = ScheduleSelectors.get_schedule_complete_details_queryset(
+            booking_filters=new_booking_filters,
+            stop_filters=new_stop_filters,
+            main_filters=new_main_filters,
+            journey_date=journey_date,
+        )
+
+        valid_schedules: list[JourneySearchServiceDataclasses.Output] = []
+        for schedule in schedules_queryset:
             route = schedule.route
-            bookings_of_route_schedule: list[Booking] = list(schedule.bookings_of_route_schedule.all())
-            route_stations_of_route: list[RouteStation] = list(route.route_stations_of_route.all())
-            destination_route_station: RouteStation = None
-            source_route_station: RouteStation = None
+            stops_of_route: list[Stop] = list(route.stops_of_route.all())
+            bookings_of_schedule: list[Booking] = list(schedule.bookings_of_schedule.all())
+            
+            destination_stop: Stop = None
+            source_stop: Stop = None
 
-            for route_station in route_stations_of_route:
-                if route_station.station.code == input.source_station_code:
-                    source_route_station = route_station
-                elif route_station.station.code == input.destination_station_code:
-                    destination_route_station = route_station
+            for stop in stops_of_route:
+                if stop.station.code == self.source_station_code:
+                    source_stop = stop
+                elif stop.station.code == self.destination_station_code:
+                    destination_stop = stop
 
             if (
-                source_route_station and
-                destination_route_station and
-                source_route_station.order < destination_route_station.order
+                source_stop and
+                destination_stop and
+                source_stop.order < destination_stop.order
             ):
-                setattr(schedule, 'source_route_station', source_route_station)
-                setattr(schedule, 'destination_route_station',destination_route_station)
+                setattr(schedule, 'source_stop', source_stop)
+                setattr(schedule, 'destination_stop',destination_stop)
                 valid_schedules.append(schedule)
 
         for schedule in valid_schedules:
             route = schedule.route
-            source_route_station: RouteStation = getattr(schedule, 'source_route_station')
-            destination_route_station: RouteStation = getattr(schedule, 'destination_route_station')
-            bookings_of_route_schedule: list[Booking] = list(schedule.bookings_of_route_schedule.all())
-            route_stations_of_route: list[RouteStation] = list(route.route_stations_of_route.all())
+            stops_of_route: list[Stop] = list(route.stops_of_route.all())
+            bookings_of_schedule: list[Booking] = list(schedule.bookings_of_schedule.all())
 
-            booking_windows_data = RouteScheduleModelUtils.get_booking_windows_data(
+            source_stop: Stop = getattr(schedule, 'source_stop')
+            destination_stop: Stop = getattr(schedule, 'destination_stop')
+
+            journey_details_service = JourneyDetailsService(
                 schedule=schedule,
-                journey_date=input.journey_date,
-                source_route_station=source_route_station,
-            )
-            seat_availability_data = RouteScheduleModelUtils.get_seat_availability_data(
-                schedule=schedule,
-                bookings=bookings_of_route_schedule,
-                journey_date=input.journey_date,
-                source_route_station=source_route_station,
-                destination_route_station=destination_route_station,
-                route_stations_of_route=route_stations_of_route,
+                journey_date=journey_date,
+                destination_stop=destination_stop,
+                source_stop=source_stop,
             )
 
-            journey_duration_minutes = RouteModelUtils.get_total_duration_minutes(
-                source_route_station=source_route_station,
-                destination_route_station=destination_route_station,
-            )
-            journey_distance_kms = RouteModelUtils.get_total_distance_kms(
-                source_route_station=source_route_station,
-                destination_route_station=destination_route_station,
-            )
-            route_total_distance_kms = RouteModelUtils.get_total_distance_kms(
-                route_stations_of_route=route_stations_of_route,
-            )
-
-            general_pricing = (journey_distance_kms / route_total_distance_kms) * route.general_price
-            tatkal_pricing = (journey_distance_kms / route_total_distance_kms) * route.tatkal_price
-
-            setattr(schedule, 'route_stations', route_stations_of_route)
-            setattr(schedule, 'booking_windows_data', booking_windows_data)
-            setattr(schedule, 'seat_availability_data', seat_availability_data)
-            setattr(schedule, 'journey_duration_minutes',journey_duration_minutes)
-            setattr(schedule, 'journey_distance_kms', journey_distance_kms)
-            setattr(schedule, 'general_pricing', general_pricing)
-            setattr(schedule, 'tatkal_pricing', tatkal_pricing)
+            complete_details = journey_details_service.get_complete_details(journey_bookings=bookings_of_schedule)
+            setattr(schedule, 'booking_window_details', complete_details.booking_window_details.to_dict())
+            setattr(schedule, 'general_details', complete_details.general_details.to_dict())
+            setattr(schedule, 'seat_details', complete_details.seat_details.to_dict())
+            setattr(schedule, 'stops', stops_of_route)
 
         return valid_schedules
-
-
-class TrainAvailabilityStatusService:
-
-    @dataclass_json
-    @dataclass
-    class Input:
-        schedule_id: int
-        journey_date: date
-        booking_type: BookingType
-        destination_station_code: str
-        source_station_code: str
-
-    @dataclass_json
-    @dataclass
-    class Output:
-        booking_windows_data: RouteScheduleBookingWindowsData
-        seat_availability_data: RouteScheduleSeatAvailabilityData
-        destination_route_station: RouteStation
-        source_route_station: RouteStation
-
-    @staticmethod
-    def get_seat_availability(input: Input):
-        main_filters = dict(id=input.schedule_id)
-        route_schedules_queryset = RouteScheduleSelectors.get_schedule_details_queryset(
-            journey_date=input.journey_date,
-            main_filters=main_filters,
-        )
-
-        route_schedule = route_schedules_queryset.first()
-        if not route_schedule:
-            raise ValueError('Schedule not found')
-        
-        route = route_schedule.route
-        source_route_station = None    
-        destination_route_station = None
-        route_stations_of_route: list[RouteStation] = list(route.route_stations_of_route.all())
-        bookings_of_route_schedule: list[Booking] = list(route_schedule.bookings_of_route_schedule.all())
-        
-        for route_station in route_stations_of_route:
-            if route_station.station.code == input.source_station_code:
-                source_route_station = route_station
-            elif route_station.station.code == input.destination_station_code:
-                destination_route_station = route_station
-        
-        if not source_route_station or not destination_route_station:
-            raise ValueError('Source or destination station not found')
-        
-        if source_route_station.order >= destination_route_station.order:
-            raise ValueError('Source station must come before destination station in route')
-        
-        seat_availability_data = RouteScheduleModelUtils.get_seat_availability_data(
-            schedule=route_schedule,
-            journey_date=input.journey_date,
-            bookings=bookings_of_route_schedule,
-            source_route_station=source_route_station,
-            destination_route_station=destination_route_station,
-            route_stations_of_route=route_stations_of_route,
-        )
-        booking_windows_data = RouteScheduleModelUtils.get_booking_windows_data(
-            schedule=route_schedule,
-            journey_date=input.journey_date,
-            source_route_station=source_route_station,
-        )
-
-        return TrainAvailabilityStatusService.Output(
-            booking_windows_data=booking_windows_data,
-            seat_availability_data=seat_availability_data,
-            destination_route_station=destination_route_station,
-            source_route_station=source_route_station,
-        )

@@ -3,9 +3,10 @@ from rest_framework import status
 from rest_framework import serializers
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
+from trains.services import JourneySearchService
+from trains.dataclasses import JourneySearchServiceDataclasses
 from utils.enums import BookingType, BookingStatus
 from utils.serializers import JourneyDateSerializer
-from trains.services import TrainAvailabilityStatusService
 from bookings.serializers import BookingsSerializers
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
@@ -28,27 +29,31 @@ def booking_create_view(request):
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+    booking_type = serializer.validated_data['type']
+    journey_date = serializer.validated_data['journey_date']
     with transaction.atomic():
-        train_availability = TrainAvailabilityStatusService.get_seat_availability(
-            TrainAvailabilityStatusService.Input(
-                booking_type=serializer.validated_data['type'],
-                schedule_id=serializer.validated_data['schedule_id'],
-                journey_date=serializer.validated_data['journey_date'],
+        journey_search_service = JourneySearchService(
+            input=JourneySearchServiceDataclasses.Input(
+                journey_date=journey_date,
                 source_station_code=serializer.validated_data['source_station_code'],
-                destination_station_code=serializer.validated_data['destination_station_code'],
+                destination_station_code=serializer.validated_data['destination_station_code']
             )
         )
 
-        booking_type = serializer.validated_data['type']
+        journey_schedules = journey_search_service.search_journeys(
+            main_filters=dict(id=serializer.validated_data['schedule_id']),
+        )
+
+        journey_schedule = journey_schedules[0]
         if booking_type == BookingType.GENERAL.value:
-            if not train_availability.booking_windows_data.general_booking_open:
+            if not journey_schedule.booking_window_details.general_booking_open:
                 return Response({
                     'status': False,
                     'status_code': status.HTTP_400_BAD_REQUEST,
                     'result': 'General booking window not open',
                 })
         elif booking_type == BookingType.TATKAL.value:
-            if not train_availability.booking_windows_data.tatkal_booking_open:
+            if not journey_schedule.booking_window_details.tatkal_booking_open:
                 return Response({
                     'status': False,
                     'status_code': status.HTTP_400_BAD_REQUEST,
@@ -57,25 +62,25 @@ def booking_create_view(request):
         
         confirmation_datetime = None
         if booking_type == BookingType.GENERAL.value:
-            if train_availability.seat_availability_data.available_general_seats > 0:
+            if journey_schedule.seat_details.available_seats.general > 0:
                 booking_status = BookingStatus.CONFIRMED.value
                 confirmation_datetime = timezone.now()
             else:
                 booking_status = BookingStatus.WAITING.value
         elif booking_type == BookingType.TATKAL.value:
-            if train_availability.seat_availability_data.available_tatkal_seats > 0:
+            if journey_schedule.seat_details.available_seats.tatkal > 0:
                 booking_status = BookingStatus.CONFIRMED.value
                 confirmation_datetime = timezone.now()
             else:
                 raise ValueError('No tatkal seats available')
         
         booking = Booking.objects.create(
-            user=request.user,
-            journey_date=serializer.validated_data['journey_date'],
-            from_route_station=train_availability.source_route_station,
-            to_route_station=train_availability.destination_route_station,
-            route_schedule=train_availability.seat_availability_data.route_schedule,
-            amount=train_availability.seat_availability_data.journey_pricing[booking_type],
+            user=user,
+            journey_date=journey_date,
+            schedule=journey_schedule,
+            from_stop=journey_schedule.source_stop,
+            to_stop=journey_schedule.destination_stop,
+            amount=journey_schedule.general_details.pricing[booking_type],
             confirmation_datetime=confirmation_datetime,
             status=booking_status,
             type=booking_type,
@@ -89,31 +94,80 @@ def booking_create_view(request):
         })
 
 
-class BookingCancelInputSerializer(serializers.Serializer):
-    pass
-
 @api_view(['POST'])
-def booking_cancel_view(request):
-    serializer = BookingCancelInputSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+@login_required
+def booking_cancel_view(request, booking_id: int):
+    with transaction.atomic():
+        booking = Booking.objects.get(
+            user=request.user,
+            id=booking_id,
+        )
 
+        if booking.status == BookingStatus.CANCELLED.value:
+            return Response({
+                'status': False,
+                'status_code': status.HTTP_400_BAD_REQUEST,
+                'result': 'Booking already cancelled',
+            })
+        if booking.type == BookingType.TATKAL.value:
+            if booking.status == BookingStatus.CONFIRMED.value:
+                return Response({
+                    'status': False,
+                    'status_code': status.HTTP_400_BAD_REQUEST,
+                    'result': 'Tatkal booking cannot be cancelled',
+                })
+        
+        now = timezone.now()
+        if booking.status == BookingStatus.CONFIRMED.value:
+            oldest_waiting_booking = Booking.objects.filter(
+                journey_date=booking.journey_date,
+                from_route_station=booking.from_route_station,
+                to_route_station=booking.to_route_station,
+                route_schedule=booking.route_schedule,
+                status=BookingStatus.WAITING.value,
+                type=BookingType.GENERAL.value,
+            ).order_by('created_at').first()
+            if oldest_waiting_booking:
+                oldest_waiting_booking.status = BookingStatus.CONFIRMED.value
+                oldest_waiting_booking.confirmation_datetime = now
+                oldest_waiting_booking.save()
 
-class BookingDetailsInputSerializer(serializers.Serializer):
-    pass
+        booking.status = BookingStatus.CANCELLED.value
+        booking.cancellation_datetime = now
+        booking.save()
+
+        serialized_data = BookingsSerializers.ModelSerializer(booking).data
+        return Response({
+            'status': True,
+            'status_code': status.HTTP_200_OK,
+            'result': serialized_data,
+        })
+    
+
 
 @api_view(['GET'])
-def booking_details_view(request):
-    serializer = BookingDetailsInputSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+@login_required
+def booking_details_view(request, booking_id: int):
+    booking = Booking.objects.get(
+        user=request.user,
+        id=booking_id,
+    )
+    serialized_data = BookingsSerializers.ModelSerializer(booking).data
+    return Response({
+        'status': True,
+        'status_code': status.HTTP_200_OK,
+        'result': serialized_data,
+    })
 
-
-class UserBookingsListInputSerializer(serializers.Serializer):
-    pass
 
 @api_view(['GET'])
+@login_required
 def user_bookings_list_view(request):
-    serializer = UserBookingsListInputSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    user: User = request.user
+    user_bookings = Booking.objects.filter(user=user).order_by('-created_at')
+    serialized_data = BookingsSerializers.ModelSerializer(user_bookings, many=True).data
+    return Response({
+        'status': True,
+        'status_code': status.HTTP_200_OK,
+        'result': serialized_data,
+    })

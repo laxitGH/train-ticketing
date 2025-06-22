@@ -2,7 +2,7 @@ import random
 from django.db import transaction
 from datetime import time, timedelta
 from django.core.management.base import BaseCommand
-from trains.models import Station, Train, Route, RouteStation, RouteSchedule
+from trains.models import Station, Train, Route, Stop, Schedule
 from utils.enums import BookingType
 
 """
@@ -482,7 +482,7 @@ class TrainDataGenerator:
             
             # Create schedules for selected weekdays
             for weekday in selected_weekdays:
-                RouteSchedule.objects.create(
+                Schedule.objects.create(
                     route=route,
                     weekday=weekday,
                     departure_time=departure_time,
@@ -590,7 +590,7 @@ class TrainDataGenerator:
                 segment_distance = (time_for_segment / 60) * avg_speed
                 current_distance += segment_distance
             
-            RouteStation.objects.create(
+            Stop.objects.create(
                 order=order,
                 route=route,
                 station=station,
@@ -644,8 +644,8 @@ class TrainDataGenerator:
     def clear_all_data(self):
         """Clear all existing data"""
         print("🗑️  Clearing existing data...")
-        RouteSchedule.objects.all().delete()
-        RouteStation.objects.all().delete()
+        Schedule.objects.all().delete()
+        Stop.objects.all().delete()
         Route.objects.all().delete()
         Train.objects.all().delete()
         Station.objects.all().delete()

@@ -71,7 +71,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.CreateModel(
-            name='RouteSchedule',
+            name='Schedule',
             fields=[
                 ('id', models.BigAutoField(primary_key=True, serialize=False)),
                 ('deleted', models.BooleanField(default=False)),
@@ -96,7 +96,7 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, related_name='routes_of_train', to='trains.train'),
         ),
         migrations.CreateModel(
-            name='RouteStation',
+            name='Stop',
             fields=[
                 ('id', models.BigAutoField(primary_key=True, serialize=False)),
                 ('deleted', models.BooleanField(default=False)),

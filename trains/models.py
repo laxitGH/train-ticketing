@@ -46,12 +46,15 @@ class Route(ModelUtils.BaseModel):
     @property
     def general_seats(self) -> int:
         return self.seats.get(BookingType.GENERAL.value, 0)
+    
+    def __str__(self) -> str:
+        return f"[{self.id}] {self.name}"
 
 
-class RouteStation(ModelUtils.BaseModel):
+class Stop(ModelUtils.BaseModel):
     order = models.PositiveIntegerField(null=False, blank=False)
-    route = models.ForeignKey(Route, on_delete=models.CASCADE, related_name='route_stations_of_route', null=False, blank=False)
-    station = models.ForeignKey(Station, on_delete=models.CASCADE, related_name='route_stations_of_station', null=False, blank=False)
+    route = models.ForeignKey(Route, on_delete=models.CASCADE, related_name='stops_of_route', null=False, blank=False)
+    station = models.ForeignKey(Station, on_delete=models.CASCADE, related_name='stops_of_station', null=False, blank=False)
     departure_minutes_from_source = models.IntegerField(null=False, blank=False) 
     arrival_minutes_from_source = models.IntegerField(null=False, blank=False)
     distance_kms_from_source = models.FloatField(null=False, blank=False)
@@ -65,11 +68,11 @@ class RouteStation(ModelUtils.BaseModel):
         ordering = ['route', 'order']
     
     def __str__(self) -> str:
-        return f"STOP [{self.order}] {self.station.code} \t ON ROUTE [{self.route.id}]"
+        return f"[{self.id}] {self.station.code} \t ON ROUTE [{self.route.id}]"
     
 
-class RouteSchedule(ModelUtils.BaseModel):
-    route = models.ForeignKey(Route, on_delete=models.CASCADE, related_name='route_schedules_of_route', null=False, blank=False)
+class Schedule(ModelUtils.BaseModel):
+    route = models.ForeignKey(Route, on_delete=models.CASCADE, related_name='schedules_of_route', null=False, blank=False)
     weekday = models.CharField(max_length=3, null=False, blank=False)
     departure_time = models.TimeField(null=False, blank=False)
     arrival_time = models.TimeField(null=False, blank=False)

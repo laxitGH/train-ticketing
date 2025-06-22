@@ -1,36 +1,82 @@
-from datetime import datetime
+from typing import Optional
 from dataclasses import dataclass
+from datetime import datetime, date
 from dataclasses_json import dataclass_json
-from trains.models import RouteSchedule
+from trains.models import Schedule, Stop, Route
 
 
-@dataclass_json
-@dataclass
-class RouteScheduleBookingWindowsData:
-    tatkal_booking_opening_datetime: datetime
-    tatkal_booking_closing_datetime: datetime
-    general_booking_opening_datetime: datetime
-    general_booking_closing_datetime: datetime
-    departure_datetime: datetime
-    general_booking_open: bool
-    tatkal_booking_open: bool
+class JourneyDetailsServiceDataclasses:
 
+    @dataclass_json
+    @dataclass
+    class Input:
+        schedule: Schedule
+        journey_date: date
+        destination_stop: Stop
+        source_stop: Stop
 
-@dataclass_json
-@dataclass
-class RouteScheduleSeatAvailabilityData:
-    total_seats: int
-    tatkal_seats: int
-    general_seats: int
-    route_schedule: RouteSchedule
-    available_tatkal_seats: int
-    available_general_seats: int
-    confirmed_general_seats: int
-    confirmed_tatkal_seats: int
-    waiting_general_seats: int
-    journey_distance_kms: float
-    cancelled_general_seats: int
-    route_total_distance_kms: float
-    journey_duration_minutes: int
-    journey_pricing: dict[str, float]
-    pricing: dict[str, float]
+    @dataclass_json
+    @dataclass
+    class SeatAvailability:
+        general: Optional[int]
+        tatkal: Optional[int]
+
+    @dataclass_json
+    @dataclass
+    class SeatDetails:
+        total: int
+        seats: 'JourneyDetailsServiceDataclasses.SeatAvailability'
+        available_seats: 'JourneyDetailsServiceDataclasses.SeatAvailability'
+        confirmed_seats: 'JourneyDetailsServiceDataclasses.SeatAvailability'
+        cancelled_seats: 'JourneyDetailsServiceDataclasses.SeatAvailability'
+        waiting_seats: 'JourneyDetailsServiceDataclasses.SeatAvailability'
+
+    @dataclass_json
+    @dataclass
+    class BookingWindowDetails:
+        departure_datetime: datetime
+        tatkal_booking_opening_datetime: datetime
+        tatkal_booking_closing_datetime: datetime
+        general_booking_opening_datetime: datetime
+        general_booking_closing_datetime: datetime
+        general_booking_open: bool
+        tatkal_booking_open: bool
+
+    @dataclass_json
+    @dataclass
+    class Pricing:
+        general: float
+        tatkal: float
+
+    @dataclass_json
+    @dataclass
+    class GeneralDetails:
+        pricing: 'JourneyDetailsServiceDataclasses.Pricing'
+        duration_minutes: int
+        distance_kms: float
+
+    @dataclass_json
+    @dataclass
+    class CompleteDetails:
+        seat_details: 'JourneyDetailsServiceDataclasses.SeatDetails'
+        general_details: 'JourneyDetailsServiceDataclasses.GeneralDetails'
+        booking_window_details: 'JourneyDetailsServiceDataclasses.BookingWindowDetails'
+    
+
+class JourneySearchServiceDataclasses:
+
+    @dataclass_json
+    @dataclass
+    class Input:
+        journey_date: date
+        source_station_code: str
+        destination_station_code: str
+
+    class Output(Schedule):
+        route: Route
+        stops: list[Stop]
+        source_stop: Stop
+        destination_stop: Stop
+        booking_window_details: 'JourneyDetailsServiceDataclasses.BookingWindowDetails'
+        general_details: 'JourneyDetailsServiceDataclasses.GeneralDetails'
+        seat_details: 'JourneyDetailsServiceDataclasses.SeatDetails'

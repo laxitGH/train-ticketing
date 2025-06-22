@@ -25,7 +25,6 @@ class QueryUtils:
                 print(f"Query count for function [{self.description}]: {total_queries}")
                 if total_queries > 5:
                     print(f"Potential N+1 query detected! {total_queries} queries executed")
-                print()
 
     @staticmethod
     def log_queries(func):

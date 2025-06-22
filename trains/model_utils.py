@@ -18,10 +18,10 @@ class RouteModelUtils:
     
     @staticmethod
     def get_total_duration_minutes(
-        source_route_station: RouteStation = None,
-        destination_route_station: RouteStation = None,
-        route_stations_of_route: list[RouteStation] = None,
-        route: Route = None,
+        source_route_station: RouteStation | None = None,
+        destination_route_station: RouteStation | None = None,
+        route_stations_of_route: list[RouteStation] | None = None,
+        route: Route | None = None,
     ) -> int:
         if source_route_station and destination_route_station:
             ordered_route_stations = sorted([source_route_station, destination_route_station], key=lambda x: x.order)
@@ -36,10 +36,10 @@ class RouteModelUtils:
     
     @staticmethod
     def get_total_distance_kms(
-        source_route_station: RouteStation = None,
-        destination_route_station: RouteStation = None,
-        route_stations_of_route: list[RouteStation] = None,
-        route: Route = None,
+        source_route_station: RouteStation | None = None,
+        destination_route_station: RouteStation | None = None,
+        route_stations_of_route: list[RouteStation] | None = None,
+        route: Route | None = None,
     ) -> float:
         if source_route_station and destination_route_station:
             ordered_route_stations = sorted([source_route_station, destination_route_station], key=lambda x: x.order)
@@ -60,9 +60,14 @@ class RouteStationModelUtils:
 class RouteScheduleModelUtils:
 
     @staticmethod
-    def get_booking_windows_data(schedule: RouteSchedule, journey_date: date) -> RouteScheduleBookingWindowsData:
+    def get_booking_windows_data(
+        journey_date: date, 
+        schedule: RouteSchedule, 
+        source_route_station: RouteStation,
+    ) -> RouteScheduleBookingWindowsData:
         now = timezone.now()
         departure_datetime = timezone.make_aware(datetime.combine(journey_date, schedule.departure_time))
+        departure_datetime = departure_datetime + timedelta(minutes=source_route_station.departure_minutes_from_source)
         
         general_booking_opening_datetime = departure_datetime - timedelta(days=120)
         general_booking_closing_datetime = departure_datetime - timedelta(hours=4)
@@ -82,24 +87,56 @@ class RouteScheduleModelUtils:
     
     @staticmethod
     def get_seat_availability_data(
+        journey_date: date,
         schedule: RouteSchedule,
         bookings: list[Booking],
-        journey_date: date,
+        source_route_station: RouteStation,
+        destination_route_station: RouteStation,
+        route_stations_of_route: list[RouteStation],
     ) -> RouteScheduleSeatAvailabilityData:
+        journey_duration_minutes = RouteModelUtils.get_total_duration_minutes(
+            source_route_station=source_route_station,
+            destination_route_station=destination_route_station,
+        )
+        journey_distance_kms = RouteModelUtils.get_total_distance_kms(
+            source_route_station=source_route_station,
+            destination_route_station=destination_route_station,
+        )
+        route_total_distance_kms = RouteModelUtils.get_total_distance_kms(
+            route_stations_of_route=route_stations_of_route,
+        )
+
+        route = schedule.route
+        general_pricing = (journey_distance_kms / route_total_distance_kms) * route.general_price
+        tatkal_pricing = (journey_distance_kms / route_total_distance_kms) * route.tatkal_price
+
         total_seats = schedule.route.total_seats
         tatkal_seats = schedule.route.tatkal_seats
         general_seats = total_seats - tatkal_seats
+        journey_pricing = dict(
+            general=general_pricing,
+            tatkal=tatkal_pricing,
+        )
         
         booking_windows_data = RouteScheduleModelUtils.get_booking_windows_data(
-            journey_date=journey_date,
             schedule=schedule,
+            journey_date=journey_date,
+            source_route_station=source_route_station,
         )
 
-        confirmed_general_seats = 0
-        confirmed_tatkal_seats = 0
-        waiting_general_seats = 0
-        cancelled_general_seats = 0
+        overlapping_bookings: list[Booking] = []
         for booking in bookings:
+            booking_from_order = booking.from_route_station.order
+            booking_to_order = booking.to_route_station.order
+            if max(source_route_station.order, booking_from_order) < min(destination_route_station.order, booking_to_order):
+                overlapping_bookings.append(booking)
+
+        waiting_general_seats = 0
+        confirmed_tatkal_seats = 0
+        confirmed_general_seats = 0
+        cancelled_general_seats = 0
+        
+        for booking in overlapping_bookings:
             if booking.type == BookingType.GENERAL.value:
                 if booking.status == BookingStatus.CONFIRMED.value:
                     confirmed_general_seats += 1
@@ -113,7 +150,7 @@ class RouteScheduleModelUtils:
 
         if booking_windows_data.tatkal_booking_open:
             available_tatkal_seats = (tatkal_seats - confirmed_tatkal_seats)
-            available_tatkal_seats += (general_seats - confirmed_general_seats if general_seats - confirmed_general_seats > 0 else 0)
+            available_tatkal_seats += (general_seats - confirmed_general_seats)
             available_general_seats = 0
         elif booking_windows_data.general_booking_open:
             available_tatkal_seats = 0
@@ -123,6 +160,7 @@ class RouteScheduleModelUtils:
             available_general_seats = 0
         
         return RouteScheduleSeatAvailabilityData(
+            route_schedule=schedule,
             total_seats=total_seats,
             tatkal_seats=tatkal_seats,
             general_seats=general_seats,
@@ -132,4 +170,9 @@ class RouteScheduleModelUtils:
             confirmed_tatkal_seats=confirmed_tatkal_seats,
             waiting_general_seats=waiting_general_seats,
             cancelled_general_seats=cancelled_general_seats,
+            route_total_distance_kms=route_total_distance_kms,
+            journey_duration_minutes=journey_duration_minutes,
+            journey_distance_kms=journey_distance_kms,
+            journey_pricing=journey_pricing,
+            pricing=route.pricing,
         )

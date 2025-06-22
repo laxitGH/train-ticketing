@@ -72,4 +72,12 @@ class RouteScheduleSerializers:
         available_tatkal_seats = serializers.IntegerField()
         available_general_seats = serializers.IntegerField()
         confirmed_general_seats = serializers.IntegerField()
+        confirmed_tatkal_seats = serializers.IntegerField()
+        waiting_general_seats = serializers.IntegerField()
+        cancelled_general_seats = serializers.IntegerField()
+        route_total_distance_kms = serializers.FloatField()
+        journey_duration_minutes = serializers.IntegerField()
+        journey_distance_kms = serializers.FloatField()
+        journey_pricing = serializers.DictField()
+        pricing = serializers.DictField()
 

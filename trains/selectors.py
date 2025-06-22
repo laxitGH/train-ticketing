@@ -28,8 +28,8 @@ class RouteScheduleSelectors:
     def get_schedule_details_queryset(
         main_filters: dict,
         journey_date: date,
-        route_station_filters: dict = {},
         booking_filters: dict = {},
+        route_station_filters: dict = {},
     ) -> QuerySet[RouteSchedule]:
         new_main_filters = { **main_filters }
         new_booking_filters = { **booking_filters }
@@ -50,14 +50,12 @@ class RouteScheduleSelectors:
                     queryset=RouteStation.objects.filter(
                         **new_route_station_filters
                     ).select_related('station').order_by('order'),
-                    to_attr='stations_of_schedule'
                 ),
                 Prefetch(
                     'bookings_of_route_schedule',
                     queryset=Booking.objects.filter(
                         **new_booking_filters
-                    ).select_related('user'),
-                    to_attr='bookings_of_schedule'
+                    ).select_related('user', 'from_route_station', 'to_route_station'),
                 )
             ).distinct()
         )

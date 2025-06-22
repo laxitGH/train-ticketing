@@ -27,4 +27,3 @@ class RouteScheduleSeatAvailabilityData:
     confirmed_tatkal_seats: int
     waiting_general_seats: int
     cancelled_general_seats: int
-    cancelled_tatkal_seats: int

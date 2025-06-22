@@ -4,7 +4,7 @@ from bookings.models import Booking
 from django.db.models import Prefetch
 from dataclasses_json import dataclass_json
 from trains.models import RouteStation, RouteSchedule
-from trains.model_utils import RouteScheduleModelUtils
+from trains.model_utils import RouteScheduleModelUtils, RouteUtils
 from trains.serializers import TrainSearchOutputSerializer
 from utils.queries import QueryUtils
 
@@ -83,16 +83,28 @@ class TrainSearchService:
                 schedule=schedule,
             )
 
-            journey_duration_minutes = destination_route_station.arrival_minutes_from_source - source_route_station.departure_minutes_from_source
-            journey_distance_kms = destination_route_station.distance_kms_from_source - source_route_station.distance_kms_from_source
-            journey_pricing = (journey_distance_kms / route.total_distance_kms) * route.general_price
+            journey_duration_minutes = RouteUtils.get_total_duration_minutes(
+                source_route_station=source_route_station,
+                destination_route_station=destination_route_station,
+            )
+            journey_distance_kms = RouteUtils.get_total_distance_kms(
+                source_route_station=source_route_station,
+                destination_route_station=destination_route_station,
+            )
+            route_total_distance_kms = RouteUtils.get_total_distance_kms(
+                route_stations_of_route=stations_of_schedule,
+            )
+
+            general_pricing = (journey_distance_kms / route_total_distance_kms) * route.general_price
+            tatkal_pricing = (journey_distance_kms / route_total_distance_kms) * route.tatkal_price
             
             setattr(schedule, 'route_stations', stations_of_schedule)
             setattr(schedule, 'booking_windows_data', booking_windows_data)
             setattr(schedule, 'seat_availability_data', seat_availability_data)
             setattr(schedule, 'journey_duration_minutes', journey_duration_minutes)
             setattr(schedule, 'journey_distance_kms', journey_distance_kms)
-            setattr(schedule, 'journey_pricing', journey_pricing)
+            setattr(schedule, 'general_pricing', general_pricing)
+            setattr(schedule, 'tatkal_pricing', tatkal_pricing)
             
         output_serializer = TrainSearchOutputSerializer(valid_schedules, many=True)
         print(f"🎯 Found {len(valid_schedules)} valid train schedules")

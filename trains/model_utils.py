@@ -1,8 +1,8 @@
 from django.utils import timezone
 from bookings.models import Booking
-from trains.models import RouteSchedule
 from datetime import datetime, timedelta, date
 from utils.enums import BookingStatus, BookingType
+from trains.models import RouteSchedule, Route, RouteStation
 from trains.dataclasses import RouteScheduleBookingWindowsData, RouteScheduleSeatAvailabilityData
 
 
@@ -39,32 +39,26 @@ class RouteScheduleModelUtils:
         tatkal_seats = schedule.route.tatkal_seats
         general_seats = total_seats - tatkal_seats
         
-        now = timezone.now()
         booking_windows_data = RouteScheduleModelUtils.get_booking_windows_data(
             journey_date=journey_date,
             schedule=schedule,
         )
 
-        confirmed_general_seats = len([
-            booking for booking in bookings 
-            if (booking.type == BookingType.GENERAL.value and booking.status == BookingStatus.CONFIRMED.value)
-        ])
-        confirmed_tatkal_seats = len([
-            booking for booking in bookings 
-            if (booking.type == BookingType.TATKAL.value and booking.status == BookingStatus.CONFIRMED.value)
-        ])
-        waiting_general_seats = len([
-            booking for booking in bookings 
-            if (booking.type == BookingType.GENERAL.value and booking.status == BookingStatus.WAITING.value)
-        ])
-        cancelled_general_seats = len([
-            booking for booking in bookings 
-            if (booking.type == BookingType.GENERAL.value and booking.status == BookingStatus.CANCELLED.value)
-        ])
-        cancelled_tatkal_seats = len([
-            booking for booking in bookings 
-            if (booking.type == BookingType.TATKAL.value and booking.status == BookingStatus.CANCELLED.value)
-        ])
+        confirmed_general_seats = 0
+        confirmed_tatkal_seats = 0
+        waiting_general_seats = 0
+        cancelled_general_seats = 0
+        for booking in bookings:
+            if booking.type == BookingType.GENERAL.value:
+                if booking.status == BookingStatus.CONFIRMED.value:
+                    confirmed_general_seats += 1
+                elif booking.status == BookingStatus.WAITING.value:
+                    waiting_general_seats += 1
+                elif booking.status == BookingStatus.CANCELLED.value:
+                    cancelled_general_seats += 1
+            elif booking.type == BookingType.TATKAL.value:
+                if booking.status == BookingStatus.CONFIRMED.value:
+                    confirmed_tatkal_seats += 1
 
         if booking_windows_data.tatkal_booking_open:
             available_tatkal_seats = (tatkal_seats - confirmed_tatkal_seats)
@@ -87,12 +81,46 @@ class RouteScheduleModelUtils:
             confirmed_tatkal_seats=confirmed_tatkal_seats,
             waiting_general_seats=waiting_general_seats,
             cancelled_general_seats=cancelled_general_seats,
-            cancelled_tatkal_seats=cancelled_tatkal_seats,
         )
 
 
 class RouteUtils:
-    pass
+    
+    @staticmethod
+    def get_total_duration_minutes(
+        source_route_station: RouteStation = None,
+        destination_route_station: RouteStation = None,
+        route_stations_of_route: list[RouteStation] = None,
+        route: Route = None,
+    ) -> int:
+        if source_route_station and destination_route_station:
+            ordered_route_stations = sorted([source_route_station, destination_route_station], key=lambda x: x.order)
+        elif route_stations_of_route:
+            ordered_route_stations = sorted(list(route_stations_of_route), key=lambda x: x.order)
+        elif route:
+            ordered_route_stations = sorted(list(route.route_stations_of_route.all()), key=lambda x: x.order)
+        else:
+            raise ValueError('Either source_route_station, destination_route_station or route must be provided')
+        
+        return int(ordered_route_stations[-1].arrival_minutes_from_source - ordered_route_stations[0].departure_minutes_from_source)
+    
+    @staticmethod
+    def get_total_distance_kms(
+        source_route_station: RouteStation = None,
+        destination_route_station: RouteStation = None,
+        route_stations_of_route: list[RouteStation] = None,
+        route: Route = None,
+    ) -> float:
+        if source_route_station and destination_route_station:
+            ordered_route_stations = sorted([source_route_station, destination_route_station], key=lambda x: x.order)
+        elif route_stations_of_route:
+            ordered_route_stations = sorted(list(route_stations_of_route), key=lambda x: x.order)
+        elif route:
+            ordered_route_stations = sorted(list(route.route_stations_of_route.all()), key=lambda x: x.order)
+        else:
+            raise ValueError('Either source_route_station, destination_route_station or route must be provided')
+        
+        return float(ordered_route_stations[-1].distance_kms_from_source - ordered_route_stations[0].distance_kms_from_source)
 
 
 class RouteStationUtils:

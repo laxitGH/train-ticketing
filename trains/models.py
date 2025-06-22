@@ -1,7 +1,6 @@
 from django.db import models
 from utils.enums import BookingType
 from utils.models import ModelUtils
-from django.db.models import QuerySet
 
 
 class Station(ModelUtils.BaseModel):
@@ -27,9 +26,6 @@ class Route(ModelUtils.BaseModel):
     train = models.ForeignKey(Train, on_delete=models.CASCADE, related_name='routes_of_train', null=False, blank=False)
     pricing = models.JSONField(default=dict, null=False, blank=False)
     seats = models.JSONField(default=dict, null=False, blank=False)
-
-    def get_ordered_route_stations(self, reverse: bool = False) -> QuerySet['RouteStation']:
-        return self.route_stations_of_route.order_by('order' if not reverse else '-order')
     
     @property
     def tatkal_price(self) -> float:
@@ -50,25 +46,6 @@ class Route(ModelUtils.BaseModel):
     @property
     def general_seats(self) -> int:
         return self.seats.get(BookingType.GENERAL.value, 0)
-    
-    @property 
-    def end_station(self) -> 'RouteStation':
-        return self.get_ordered_route_stations().last()
-    
-    @property
-    def start_station(self) -> 'RouteStation':
-        return self.get_ordered_route_stations().first()
-
-    @property
-    def total_distance_kms(self) -> float:
-        return self.get_ordered_route_stations().last().distance_kms_from_source
-    
-    @property
-    def total_duration_minutes(self) -> int:
-        return self.get_ordered_route_stations().last().arrival_minutes_from_source
-    
-    def __str__(self) -> str:
-        return f"[{self.id}] \t USING TRAIN [{self.train.number}]"
 
 
 class RouteStation(ModelUtils.BaseModel):

@@ -2,8 +2,59 @@ from django.utils import timezone
 from bookings.models import Booking
 from datetime import datetime, timedelta, date
 from utils.enums import BookingStatus, BookingType
-from trains.models import RouteSchedule, Route, RouteStation
+from trains.models import RouteSchedule, Route, RouteStation, Train, Station
 from trains.dataclasses import RouteScheduleBookingWindowsData, RouteScheduleSeatAvailabilityData
+
+
+class StationModelUtils:
+    pass
+
+
+class TrainModelUtils:
+    pass
+
+
+class RouteModelUtils:
+    
+    @staticmethod
+    def get_total_duration_minutes(
+        source_route_station: RouteStation = None,
+        destination_route_station: RouteStation = None,
+        route_stations_of_route: list[RouteStation] = None,
+        route: Route = None,
+    ) -> int:
+        if source_route_station and destination_route_station:
+            ordered_route_stations = sorted([source_route_station, destination_route_station], key=lambda x: x.order)
+        elif route_stations_of_route:
+            ordered_route_stations = sorted(list(route_stations_of_route), key=lambda x: x.order)
+        elif route:
+            ordered_route_stations = sorted(list(route.route_stations_of_route.all()), key=lambda x: x.order)
+        else:
+            raise ValueError('Either source_route_station, destination_route_station or route must be provided')
+        
+        return int(ordered_route_stations[-1].arrival_minutes_from_source - ordered_route_stations[0].departure_minutes_from_source)
+    
+    @staticmethod
+    def get_total_distance_kms(
+        source_route_station: RouteStation = None,
+        destination_route_station: RouteStation = None,
+        route_stations_of_route: list[RouteStation] = None,
+        route: Route = None,
+    ) -> float:
+        if source_route_station and destination_route_station:
+            ordered_route_stations = sorted([source_route_station, destination_route_station], key=lambda x: x.order)
+        elif route_stations_of_route:
+            ordered_route_stations = sorted(list(route_stations_of_route), key=lambda x: x.order)
+        elif route:
+            ordered_route_stations = sorted(list(route.route_stations_of_route.all()), key=lambda x: x.order)
+        else:
+            raise ValueError('Either source_route_station, destination_route_station or route must be provided')
+        
+        return float(ordered_route_stations[-1].distance_kms_from_source - ordered_route_stations[0].distance_kms_from_source)
+
+
+class RouteStationModelUtils:
+    pass
 
 
 class RouteScheduleModelUtils:
@@ -82,54 +133,3 @@ class RouteScheduleModelUtils:
             waiting_general_seats=waiting_general_seats,
             cancelled_general_seats=cancelled_general_seats,
         )
-
-
-class RouteUtils:
-    
-    @staticmethod
-    def get_total_duration_minutes(
-        source_route_station: RouteStation = None,
-        destination_route_station: RouteStation = None,
-        route_stations_of_route: list[RouteStation] = None,
-        route: Route = None,
-    ) -> int:
-        if source_route_station and destination_route_station:
-            ordered_route_stations = sorted([source_route_station, destination_route_station], key=lambda x: x.order)
-        elif route_stations_of_route:
-            ordered_route_stations = sorted(list(route_stations_of_route), key=lambda x: x.order)
-        elif route:
-            ordered_route_stations = sorted(list(route.route_stations_of_route.all()), key=lambda x: x.order)
-        else:
-            raise ValueError('Either source_route_station, destination_route_station or route must be provided')
-        
-        return int(ordered_route_stations[-1].arrival_minutes_from_source - ordered_route_stations[0].departure_minutes_from_source)
-    
-    @staticmethod
-    def get_total_distance_kms(
-        source_route_station: RouteStation = None,
-        destination_route_station: RouteStation = None,
-        route_stations_of_route: list[RouteStation] = None,
-        route: Route = None,
-    ) -> float:
-        if source_route_station and destination_route_station:
-            ordered_route_stations = sorted([source_route_station, destination_route_station], key=lambda x: x.order)
-        elif route_stations_of_route:
-            ordered_route_stations = sorted(list(route_stations_of_route), key=lambda x: x.order)
-        elif route:
-            ordered_route_stations = sorted(list(route.route_stations_of_route.all()), key=lambda x: x.order)
-        else:
-            raise ValueError('Either source_route_station, destination_route_station or route must be provided')
-        
-        return float(ordered_route_stations[-1].distance_kms_from_source - ordered_route_stations[0].distance_kms_from_source)
-
-
-class RouteStationUtils:
-    pass
-
-
-class StationUtils:
-    pass
-
-
-class TrainUtils:
-    pass

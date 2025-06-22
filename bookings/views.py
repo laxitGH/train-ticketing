@@ -10,6 +10,7 @@ from bookings.serializers import BookingsSerializers
 from trains.dataclasses import JourneySearchServiceDataclasses
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
+from utils.queries import QueryUtils
 from bookings.models import Booking
 from django.db import transaction
 
@@ -23,6 +24,7 @@ class BookingCreateInputSerializer(serializers.Serializer):
 
 @api_view(['POST'])
 @login_required
+@QueryUtils.log_queries
 def booking_create_view(request):
     user: User = request.user
     serializer = BookingCreateInputSerializer(data=request.data)
@@ -96,6 +98,7 @@ def booking_create_view(request):
 
 @api_view(['POST'])
 @login_required
+@QueryUtils.log_queries
 def booking_cancel_view(request, booking_id: int):
     with transaction.atomic():
         booking = Booking.objects.get(
@@ -144,24 +147,41 @@ def booking_cancel_view(request, booking_id: int):
         })
     
 
-
 @api_view(['GET'])
 @login_required
+@QueryUtils.log_queries
 def booking_details_view(request, booking_id: int):
-    booking = Booking.objects.get(
-        user=request.user,
-        id=booking_id,
-    )
-    serialized_data = BookingsSerializers.ModelSerializer(booking).data
-    return Response({
-        'status': True,
-        'status_code': status.HTTP_200_OK,
-        'result': serialized_data,
-    })
+    with transaction.atomic():
+        booking = Booking.objects.get(
+            user=request.user,
+            id=booking_id,
+        )
+
+        if booking.status == BookingStatus.WAITING.value:
+            waiting_bookings = Booking.objects.filter(
+                journey_date=booking.journey_date,
+                status=BookingStatus.WAITING.value,
+                type=BookingType.GENERAL.value,
+                from_stop=booking.from_stop,
+                schedule=booking.schedule,
+                to_stop=booking.to_stop,
+            ).order_by('created_at')
+            waiting_position = list(waiting_bookings).index(booking) + 1
+        else:
+            waiting_position = None
+
+        serialized_data = BookingsSerializers.ModelSerializer(booking).data
+        serialized_data['waiting_position'] = waiting_position
+        return Response({
+            'status': True,
+            'status_code': status.HTTP_200_OK,
+            'result': serialized_data,
+        })
 
 
 @api_view(['GET'])
 @login_required
+@QueryUtils.log_queries
 def user_bookings_list_view(request):
     user: User = request.user
     user_bookings = Booking.objects.filter(user=user).order_by('-created_at')

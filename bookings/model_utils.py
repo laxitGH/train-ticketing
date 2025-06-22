@@ -1,0 +1,2 @@
+class BookingModelUtils:
+    pass

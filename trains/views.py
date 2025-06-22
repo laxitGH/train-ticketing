@@ -1,10 +1,10 @@
 from rest_framework import status
 from django.utils import timezone
-from django.http import JsonResponse
 from rest_framework import serializers
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from trains.services import TrainSearchService
+from datetime import timedelta
 
 
 class TrainSearchAPIView(APIView):
@@ -12,12 +12,13 @@ class TrainSearchAPIView(APIView):
     class InputSerializer(serializers.Serializer):
         source_station_code = serializers.CharField(required=True)
         destination_station_code = serializers.CharField(required=True)
-        date = serializers.DateField(required=True, format='%Y-%m-%d')
+        journey_date = serializers.DateField(required=True, format='%Y-%m-%d')
 
-        def validate_date(self, value):
+        def validate_journey_date(self, value):
             today = timezone.now().date()
-            if value < today:
-                raise serializers.ValidationError("Date cannot be in the past")
+            max_date = today + timedelta(days=120)
+            if value < today or value > max_date:
+                raise serializers.ValidationError("Date cannot be in the past or more than 120 days from today")
             return value
     
     def get(self, request):
@@ -25,14 +26,14 @@ class TrainSearchAPIView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
-        date = serializer.validated_data['date']
+        journey_date = serializer.validated_data['journey_date']
         source_station_code = serializer.validated_data['source_station_code']
         destination_station_code = serializer.validated_data['destination_station_code']
-        print('inputs:', date, source_station_code, destination_station_code)
+        print('inputs:', journey_date, source_station_code, destination_station_code)
 
         trains_data = TrainSearchService.search_trains(
             TrainSearchService.Input(
-                date=date,
+                journey_date=journey_date,
                 source_station_code=source_station_code,
                 destination_station_code=destination_station_code
             )

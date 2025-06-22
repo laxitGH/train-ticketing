@@ -3,7 +3,7 @@ from rest_framework import serializers
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from trains.services import JourneySearchService
-from trains.serializers import RouteSerializers, StopSerializers
+from trains.serializers import RouteSerializers, StopSerializers, ScheduleSerializers
 from trains.dataclasses import JourneySearchServiceDataclasses
 from utils.serializers import JourneyDateSerializer
 from django.contrib.auth.models import User
@@ -16,7 +16,7 @@ class JourneySearchInputSerializer(serializers.Serializer):
     destination_station_code = serializers.CharField(required=True)
     journey_date = JourneyDateSerializer(required=True)
 
-class JourneySearchOutputSerializer(serializers.Serializer):
+class JourneySearchOutputSerializer(ScheduleSerializers.ModelSerializer):
     route = RouteSerializers.ModelSerializerWithTrain()
     source_stop = StopSerializers.ModelSerializerWithStation()
     destination_stop = StopSerializers.ModelSerializerWithStation()
@@ -34,15 +34,20 @@ def journey_search_view(request):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     try :
+        journey_date = serializer.validated_data['journey_date']
+        source_station_code = serializer.validated_data['source_station_code']
+        destination_station_code = serializer.validated_data['destination_station_code']
         journey_search_service = JourneySearchService(
             input=JourneySearchServiceDataclasses.Input(
-                journey_date=serializer.validated_data['journey_date'],
-                source_station_code=serializer.validated_data['source_station_code'],
-                destination_station_code=serializer.validated_data['destination_station_code']
+                journey_date=journey_date,
+                source_station_code=source_station_code,
+                destination_station_code=destination_station_code
             )
         )
 
-        journey_schedules = journey_search_service.search_journeys()
+        journey_schedules = journey_search_service.search_journeys(
+            main_filters=dict(route__stops_of_route__station__code__in=[source_station_code, destination_station_code]),
+        )
         serialized_data = JourneySearchOutputSerializer(journey_schedules, many=True)
         return Response({
             'status': True,

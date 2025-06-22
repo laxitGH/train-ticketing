@@ -4,10 +4,10 @@ from rest_framework import serializers
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from trains.services import JourneySearchService
-from trains.dataclasses import JourneySearchServiceDataclasses
 from utils.enums import BookingType, BookingStatus
 from utils.serializers import JourneyDateSerializer
 from bookings.serializers import BookingsSerializers
+from trains.dataclasses import JourneySearchServiceDataclasses
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from bookings.models import Booking
@@ -46,14 +46,14 @@ def booking_create_view(request):
 
         journey_schedule = journey_schedules[0]
         if booking_type == BookingType.GENERAL.value:
-            if not journey_schedule.booking_window_details.general_booking_open:
+            if not journey_schedule.booking_window_details['general_booking_open']:
                 return Response({
                     'status': False,
                     'status_code': status.HTTP_400_BAD_REQUEST,
                     'result': 'General booking window not open',
                 })
         elif booking_type == BookingType.TATKAL.value:
-            if not journey_schedule.booking_window_details.tatkal_booking_open:
+            if not journey_schedule.booking_window_details['tatkal_booking_open']:
                 return Response({
                     'status': False,
                     'status_code': status.HTTP_400_BAD_REQUEST,
@@ -62,13 +62,13 @@ def booking_create_view(request):
         
         confirmation_datetime = None
         if booking_type == BookingType.GENERAL.value:
-            if journey_schedule.seat_details.available_seats.general > 0:
+            if journey_schedule.seat_details['available_seats'][BookingType.GENERAL.value] > 0:
                 booking_status = BookingStatus.CONFIRMED.value
                 confirmation_datetime = timezone.now()
             else:
                 booking_status = BookingStatus.WAITING.value
         elif booking_type == BookingType.TATKAL.value:
-            if journey_schedule.seat_details.available_seats.tatkal > 0:
+            if journey_schedule.seat_details['available_seats'][BookingType.TATKAL.value] > 0:
                 booking_status = BookingStatus.CONFIRMED.value
                 confirmation_datetime = timezone.now()
             else:
@@ -80,7 +80,7 @@ def booking_create_view(request):
             schedule=journey_schedule,
             from_stop=journey_schedule.source_stop,
             to_stop=journey_schedule.destination_stop,
-            amount=journey_schedule.general_details.pricing[booking_type],
+            amount=journey_schedule.general_details['pricing'][booking_type],
             confirmation_datetime=confirmation_datetime,
             status=booking_status,
             type=booking_type,
@@ -121,11 +121,11 @@ def booking_cancel_view(request, booking_id: int):
         if booking.status == BookingStatus.CONFIRMED.value:
             oldest_waiting_booking = Booking.objects.filter(
                 journey_date=booking.journey_date,
-                from_route_station=booking.from_route_station,
-                to_route_station=booking.to_route_station,
-                route_schedule=booking.route_schedule,
                 status=BookingStatus.WAITING.value,
                 type=BookingType.GENERAL.value,
+                from_stop=booking.from_stop,
+                schedule=booking.schedule,
+                to_stop=booking.to_stop,
             ).order_by('created_at').first()
             if oldest_waiting_booking:
                 oldest_waiting_booking.status = BookingStatus.CONFIRMED.value

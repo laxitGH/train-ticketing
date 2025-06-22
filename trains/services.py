@@ -1,6 +1,6 @@
+from trains.models import Stop
 from django.utils import timezone
 from bookings.models import Booking
-from trains.models import Stop, Schedule
 from datetime import date, datetime, timedelta
 from trains.selectors import ScheduleSelectors
 from trains.model_utils import RouteModelUtils
@@ -88,9 +88,11 @@ class JourneyDetailsService:
         )
         cancelled_seats = JourneyDetailsServiceDataclasses.SeatAvailability(
             general=cancelled_general_seats,
+            tatkal=0,
         )
         waiting_seats = JourneyDetailsServiceDataclasses.SeatAvailability(
             general=waiting_general_seats,
+            tatkal=0,
         )
         
         self.seat_details = JourneyDetailsServiceDataclasses.SeatDetails(
@@ -149,15 +151,14 @@ class JourneyDetailsService:
 
         general_pricing = (journey_distance_kms / route_total_distance_kms) * self.schedule.route.general_price
         tatkal_pricing = (journey_distance_kms / route_total_distance_kms) * self.schedule.route.tatkal_price
-        pricing = JourneyDetailsServiceDataclasses.Pricing(
-            general=general_pricing,
-            tatkal=tatkal_pricing,
-        )
 
         self.journey_details = JourneyDetailsServiceDataclasses.GeneralDetails(
-            duration_minutes=journey_duration_minutes,
             distance_kms=journey_distance_kms,
-            pricing=pricing,
+            duration_minutes=journey_duration_minutes,
+            pricing=JourneyDetailsServiceDataclasses.Pricing(
+                general=round(general_pricing, 2),
+                tatkal=round(tatkal_pricing, 2),
+            ),
         )
 
         return self.journey_details
@@ -182,9 +183,6 @@ class JourneySearchService:
         new_stop_filters = { **stop_filters }
         new_booking_filters = { **booking_filters }
 
-        if not main_filters:
-            new_main_filters = dict(route__stops_of_route__station__code__in=[self.source_station_code, self.destination_station_code])
-        
         schedules_queryset = ScheduleSelectors.get_schedule_complete_details_queryset(
             booking_filters=new_booking_filters,
             stop_filters=new_stop_filters,
@@ -225,10 +223,12 @@ class JourneySearchService:
             destination_stop: Stop = getattr(schedule, 'destination_stop')
 
             journey_details_service = JourneyDetailsService(
-                schedule=schedule,
-                journey_date=journey_date,
-                destination_stop=destination_stop,
-                source_stop=source_stop,
+                input=JourneyDetailsServiceDataclasses.Input(
+                    schedule=schedule,
+                    journey_date=journey_date,
+                    destination_stop=destination_stop,
+                    source_stop=source_stop,
+                )
             )
 
             complete_details = journey_details_service.get_complete_details(journey_bookings=bookings_of_schedule)

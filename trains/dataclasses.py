@@ -1,4 +1,3 @@
-from typing import Optional
 from dataclasses import dataclass
 from datetime import datetime, date
 from dataclasses_json import dataclass_json
@@ -18,8 +17,8 @@ class JourneyDetailsServiceDataclasses:
     @dataclass_json
     @dataclass
     class SeatAvailability:
-        general: Optional[int]
-        tatkal: Optional[int]
+        general: int
+        tatkal: int
 
     @dataclass_json
     @dataclass
@@ -77,6 +76,6 @@ class JourneySearchServiceDataclasses:
         stops: list[Stop]
         source_stop: Stop
         destination_stop: Stop
-        booking_window_details: 'JourneyDetailsServiceDataclasses.BookingWindowDetails'
-        general_details: 'JourneyDetailsServiceDataclasses.GeneralDetails'
-        seat_details: 'JourneyDetailsServiceDataclasses.SeatDetails'
+        booking_window_details: dict
+        general_details: dict
+        seat_details: dict

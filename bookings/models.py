@@ -11,6 +11,7 @@ class Booking(ModelUtils.BaseModel):
     from_stop = models.ForeignKey(Stop, on_delete=models.CASCADE, related_name='bookings_of_from_stop', null=False, blank=False)
     to_stop = models.ForeignKey(Stop, on_delete=models.CASCADE, related_name='bookings_of_to_stop', null=False, blank=False)
     amount = models.DecimalField(max_digits=10, decimal_places=2, null=False, blank=False)
+    notification_sent = models.BooleanField(default=False, null=False, blank=False)
     cancellation_datetime = models.DateTimeField(null=True, blank=True)
     confirmation_datetime = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=16, null=False, blank=False)

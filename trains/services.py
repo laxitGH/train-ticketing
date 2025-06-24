@@ -1,11 +1,13 @@
-from trains.models import Stop
 from django.utils import timezone
 from bookings.models import Booking
+from django.db.models import Prefetch
 from datetime import date, datetime, timedelta
 from trains.selectors import ScheduleSelectors
 from trains.model_utils import RouteModelUtils
 from utils.enums import BookingStatus, BookingType
+from trains.models import Stop, Train, Route, Station, Schedule
 from trains.dataclasses import JourneyDetailsServiceDataclasses, JourneySearchServiceDataclasses
+from trains.selectors import BookingSelectors, StopSelectors, TrainSelectors
 
 
 class JourneyDetailsService:
@@ -169,25 +171,20 @@ class JourneySearchService:
         self.journey_date = input.journey_date
         self.source_station_code = input.source_station_code
         self.destination_station_code = input.destination_station_code
+        self.schedule_query_options = input.schedule_query_options
+        self.booking_query_options = input.booking_query_options
+        self.stop_query_options = input.stop_query_options
 
     def search_journeys(
-        self, 
-        main_filters: dict = {},
-        stop_filters: dict = {},
-        booking_filters: dict = {},
+        self,
         journey_date: date | None = None,
     ) -> list[JourneySearchServiceDataclasses.Output]:
-        journey_date = journey_date or self.journey_date
-        
-        new_main_filters = { **main_filters }
-        new_stop_filters = { **stop_filters }
-        new_booking_filters = { **booking_filters }
-
+        new_journey_date = journey_date or self.journey_date        
         schedules_queryset = ScheduleSelectors.get_schedule_complete_details_queryset(
-            booking_filters=new_booking_filters,
-            stop_filters=new_stop_filters,
-            main_filters=new_main_filters,
-            journey_date=journey_date,
+            query_options=self.schedule_query_options,
+            booking_query_options=self.booking_query_options,
+            stop_query_options=self.stop_query_options,
+            journey_date=new_journey_date,
         )
 
         valid_schedules: list[JourneySearchServiceDataclasses.Output] = []
@@ -225,16 +222,24 @@ class JourneySearchService:
             journey_details_service = JourneyDetailsService(
                 input=JourneyDetailsServiceDataclasses.Input(
                     schedule=schedule,
-                    journey_date=journey_date,
+                    journey_date=new_journey_date,
                     destination_stop=destination_stop,
                     source_stop=source_stop,
                 )
             )
 
             complete_details = journey_details_service.get_complete_details(journey_bookings=bookings_of_schedule)
-            setattr(schedule, 'booking_window_details', complete_details.booking_window_details.to_dict())
-            setattr(schedule, 'general_details', complete_details.general_details.to_dict())
-            setattr(schedule, 'seat_details', complete_details.seat_details.to_dict())
+            setattr(schedule, 'booking_window_details', complete_details.booking_window_details)
+            setattr(schedule, 'general_details', complete_details.general_details)
+            setattr(schedule, 'seat_details', complete_details.seat_details)
             setattr(schedule, 'stops', stops_of_route)
 
         return valid_schedules
+
+
+class TrainService:
+    def __init__(self):
+        pass
+
+    def get_all_trains(self) -> list[Train]:
+        trains_queryset = TrainSelectors.get_train_complete_details_queryset()

@@ -12,8 +12,8 @@ class ModelUtils:
         metadata = models.JSONField(default=dict)
 
         class NonDeletedManager(models.Manager):
-            def get_queryset(self):
-                return super().get_queryset().filter(deleted=False)
+            def generate_queryset(self):
+                return super().generate_queryset().filter(deleted=False)
 
         all_objects = models.Manager()
         objects = NonDeletedManager()

@@ -36,8 +36,8 @@ def register_view(request):
 
     try:
         user = User.objects.create_user(
-            username=serializer.validated_data['username'],
             email=serializer.validated_data['email'],
+            username=serializer.validated_data['username'],
             password=serializer.validated_data['password'],
             first_name=serializer.validated_data.get('first_name', ''),
             last_name=serializer.validated_data.get('last_name', '')
@@ -108,9 +108,10 @@ def logout_view(request):
 
 @api_view(['GET'])
 @login_required
-def profile_view(request):
+def details_view(request):
+    user: User = request.user
     return Response({
         'status': True,
         'status_code': status.HTTP_200_OK,
-        'result': UserSerializers.ModelSerializer(request.user).data
+        'result': UserSerializers.ModelSerializer(user).data
     })

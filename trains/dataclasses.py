@@ -1,7 +1,10 @@
+from typing import Optional
 from dataclasses import dataclass
 from datetime import datetime, date
 from dataclasses_json import dataclass_json
 from trains.models import Schedule, Stop, Route
+from trains.selectors import ScheduleSelectors, StopSelectors
+from bookings.selectors import BookingSelectors
 
 
 class JourneyDetailsServiceDataclasses:
@@ -70,12 +73,15 @@ class JourneySearchServiceDataclasses:
         journey_date: date
         source_station_code: str
         destination_station_code: str
+        schedule_query_options: 'Optional[ScheduleSelectors.Options]' = None
+        booking_query_options: 'Optional[BookingSelectors.Options]' = None
+        stop_query_options: 'Optional[StopSelectors.Options]' = None
 
     class Output(Schedule):
         route: Route
         stops: list[Stop]
         source_stop: Stop
         destination_stop: Stop
-        booking_window_details: dict
-        general_details: dict
-        seat_details: dict
+        booking_window_details: JourneyDetailsServiceDataclasses.BookingWindowDetails
+        general_details: JourneyDetailsServiceDataclasses.GeneralDetails
+        seat_details: JourneyDetailsServiceDataclasses.SeatDetails

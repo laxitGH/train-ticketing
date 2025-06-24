@@ -4,11 +4,12 @@ from rest_framework import serializers
 from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from trains.services import JourneySearchService
-from utils.enums import BookingType, BookingStatus
+from utils.enums import BookingStatus, BookingType
 from utils.serializers import JourneyDateSerializer
 from bookings.serializers import BookingsSerializers
 from trains.dataclasses import JourneySearchServiceDataclasses
 from django.contrib.auth.decorators import login_required
+from trains.selectors import ScheduleSelectors
 from django.contrib.auth.models import User
 from utils.queries import QueryUtils
 from bookings.models import Booking
@@ -17,7 +18,7 @@ from django.db import transaction
 
 class BookingCreateInputSerializer(serializers.Serializer):
     journey_date = JourneyDateSerializer(required=True)
-    type = serializers.ChoiceField(required=True, choices=[BookingType.GENERAL.value, BookingType.TATKAL.value])
+    booking_type = serializers.ChoiceField(required=True, choices=BookingType.choices())
     destination_station_code = serializers.CharField(required=True)
     source_station_code = serializers.CharField(required=True)
     schedule_id = serializers.IntegerField(required=True)
@@ -31,31 +32,33 @@ def booking_create_view(request):
     if not serializer.is_valid():
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-    booking_type = serializer.validated_data['type']
+    booking_type = serializer.validated_data['booking_type']
     journey_date = serializer.validated_data['journey_date']
+    schedule_query_options = ScheduleSelectors.Options(
+        filters=dict(id=serializer.validated_data['schedule_id']),
+    )
+
     with transaction.atomic():
         journey_search_service = JourneySearchService(
             input=JourneySearchServiceDataclasses.Input(
                 journey_date=journey_date,
                 source_station_code=serializer.validated_data['source_station_code'],
-                destination_station_code=serializer.validated_data['destination_station_code']
+                destination_station_code=serializer.validated_data['destination_station_code'],
+                schedule_query_options=schedule_query_options,
             )
         )
 
-        journey_schedules = journey_search_service.search_journeys(
-            main_filters=dict(id=serializer.validated_data['schedule_id']),
-        )
-
+        journey_schedules = journey_search_service.search_journeys()
         journey_schedule = journey_schedules[0]
         if booking_type == BookingType.GENERAL.value:
-            if not journey_schedule.booking_window_details['general_booking_open']:
+            if not journey_schedule.booking_window_details.general_booking_open:
                 return Response({
                     'status': False,
                     'status_code': status.HTTP_400_BAD_REQUEST,
                     'result': 'General booking window not open',
                 })
         elif booking_type == BookingType.TATKAL.value:
-            if not journey_schedule.booking_window_details['tatkal_booking_open']:
+            if not journey_schedule.booking_window_details.tatkal_booking_open:
                 return Response({
                     'status': False,
                     'status_code': status.HTTP_400_BAD_REQUEST,
@@ -64,13 +67,13 @@ def booking_create_view(request):
         
         confirmation_datetime = None
         if booking_type == BookingType.GENERAL.value:
-            if journey_schedule.seat_details['available_seats'][BookingType.GENERAL.value] > 0:
+            if journey_schedule.seat_details.available_seats[booking_type] > 0:
                 booking_status = BookingStatus.CONFIRMED.value
                 confirmation_datetime = timezone.now()
             else:
                 booking_status = BookingStatus.WAITING.value
         elif booking_type == BookingType.TATKAL.value:
-            if journey_schedule.seat_details['available_seats'][BookingType.TATKAL.value] > 0:
+            if journey_schedule.seat_details.available_seats[booking_type] > 0:
                 booking_status = BookingStatus.CONFIRMED.value
                 confirmation_datetime = timezone.now()
             else:
@@ -82,7 +85,7 @@ def booking_create_view(request):
             schedule=journey_schedule,
             from_stop=journey_schedule.source_stop,
             to_stop=journey_schedule.destination_stop,
-            amount=journey_schedule.general_details['pricing'][booking_type],
+            amount=journey_schedule.general_details.pricing[booking_type],
             confirmation_datetime=confirmation_datetime,
             status=booking_status,
             type=booking_type,

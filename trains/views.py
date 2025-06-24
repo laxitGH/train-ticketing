@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.decorators import api_view
 from trains.services import JourneySearchService, TrainService
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from django.contrib.auth.decorators import login_required
 from utils.serializers import JourneyDateSerializer
 from bookings.selectors import BookingSelectors
 from trains.selectors import ScheduleSelectors
@@ -69,6 +70,7 @@ class JourneyDetailsInputSerializer(serializers.Serializer):
     booking_type = serializers.ChoiceField(required=True, choices=BookingType.choices()) 
 
 @api_view(['GET'])
+@login_required
 @QueryUtils.log_queries
 def journey_details_view(request):
     user: User = request.user
@@ -117,7 +119,7 @@ def journey_details_view(request):
     
 
 class TrainView(APIView):
-    # permission_classes = [IsAuthenticated, IsAdminUser]
+    permission_classes = [IsAuthenticated, IsAdminUser]
     
     def get(self, request, *args, **kwargs):
         user: User = request.user

@@ -10,11 +10,13 @@ from utils.serializers import JourneyDateSerializer
 from bookings.selectors import BookingSelectors
 from trains.selectors import ScheduleSelectors
 from utils.enums import BookingType, Weekday
+from rest_framework.decorators import action
 from django.contrib.auth.models import User
 from rest_framework.views import APIView
 from utils.pagination import Paginator
 from utils.queries import QueryUtils
 from trains.models import Station
+from django.db import transaction
 
 
 class JourneySearchInputSerializer(serializers.Serializer):
@@ -25,12 +27,12 @@ class JourneySearchInputSerializer(serializers.Serializer):
 @api_view(['GET'])
 @QueryUtils.log_queries
 def journey_search_view(request):
-    user: User = request.user
-    serializer = JourneySearchInputSerializer(data=request.query_params)
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
     try :
+        user: User = request.user
+        serializer = JourneySearchInputSerializer(data=request.query_params)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
         journey_date = serializer.validated_data['journey_date']
         source_station_code = serializer.validated_data['source_station_code']
         destination_station_code = serializer.validated_data['destination_station_code']
@@ -73,12 +75,12 @@ class JourneyDetailsInputSerializer(serializers.Serializer):
 @login_required
 @QueryUtils.log_queries
 def journey_details_view(request):
-    user: User = request.user
-    serializer = JourneyDetailsInputSerializer(data=request.query_params)
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
     try :
+        user: User = request.user
+        serializer = JourneyDetailsInputSerializer(data=request.query_params)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
         schedule_query_options = ScheduleSelectors.Options(
             filters=dict(id=serializer.validated_data['schedule_id']),
         )
@@ -149,43 +151,17 @@ class TrainView(APIView):
             if data['arrival_minutes_from_source'] < 0:
                 raise serializers.ValidationError('Stop arrival minutes must be greater than 0')
             return data
-
-    class SchedulePostInputSerializer(serializers.Serializer):
-        arrival_time = serializers.TimeField(required=True, format='%H:%M:%S')
-        departure_time = serializers.TimeField(required=True, format='%H:%M:%S')
-        weekday = serializers.ChoiceField(required=True, choices=Weekday.choices())
-
-        def validate(self, data):
-            if data['arrival_time'] <= data['departure_time']:
-                raise serializers.ValidationError('Schedule arrival time must be greater than departure time')
-            return data
-    
-    class RoutePostInputSerializer(serializers.Serializer):
-        name = serializers.CharField(required=True)
-        seats = serializers.JSONField(required=True)
-        pricing = serializers.JSONField(required=True)
         
+    class StopListInputSerializer(serializers.ListSerializer):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
-            self.fields['stops'] = TrainView.StopPostInputSerializer(many=True, required=True)
-            self.fields['schedules'] = TrainView.SchedulePostInputSerializer(many=True, required=True)
+            self.child = TrainView.StopPostInputSerializer()
 
-        def validate_seats(self, value):
-            if not value.get('general') or not value.get('tatkal'):
-                raise serializers.ValidationError('Seats must be a dictionary with general and tatkal keys')
-            return value
-        
-        def validate_pricing(self, value):
-            if not value.get('general') or not value.get('tatkal'):
-                raise serializers.ValidationError('Pricing must be a dictionary with general and tatkal keys')
-            return value            
-        
-        def validate(self, data):
-            stops = data['stops']
-            if not stops or len(stops) < 2:
+        def validate(self, value):
+            if not value or len(value) < 2:
                 raise serializers.ValidationError('At least 2 stations are required')
             
-            sorted_stops = sorted(stops, key=lambda x: x['departure_minutes_from_source'])
+            sorted_stops = sorted(value, key=lambda x: x['departure_minutes_from_source'])
             for idx, stop in enumerate(sorted_stops):
                 stop_orders = [x['order'] for x in sorted_stops[0:idx]]
                 if idx != 0 and stop['order'] <= max(stop_orders):
@@ -198,10 +174,43 @@ class TrainView(APIView):
 
             for stop in sorted_stops:
                 stop['station'] = next((station for station in stations if station.code == stop['station_code']), None)
-            
-            data['stops'] = sorted_stops
-            data['stations'] = stations
+
+            return value
+
+    class SchedulePostInputSerializer(serializers.Serializer):
+        arrival_time = serializers.TimeField(required=True, format='%H:%M:%S')
+        departure_time = serializers.TimeField(required=True, format='%H:%M:%S')
+        weekday = serializers.ChoiceField(required=True, choices=Weekday.choices())
+
+        def validate(self, data):
+            if data['arrival_time'] <= data['departure_time']:
+                raise serializers.ValidationError('Schedule arrival time must be greater than departure time')
             return data
+        
+    class ScheduleListInputSerializer(serializers.ListSerializer):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.child = TrainView.SchedulePostInputSerializer()
+    
+    class RoutePostInputSerializer(serializers.Serializer):
+        name = serializers.CharField(required=True)
+        seats = serializers.JSONField(required=True)
+        pricing = serializers.JSONField(required=True)
+        
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.fields['stops'] = TrainView.StopListInputSerializer(required=True)
+            self.fields['schedules'] = TrainView.ScheduleListInputSerializer(required=True)
+
+        def validate_seats(self, value):
+            if not value.get('general') or not value.get('tatkal'):
+                raise serializers.ValidationError('Seats must be a dictionary with general and tatkal keys')
+            return value
+        
+        def validate_pricing(self, value):
+            if not value.get('general') or not value.get('tatkal'):
+                raise serializers.ValidationError('Pricing must be a dictionary with general and tatkal keys')
+            return value
 
     class TrainPostInputSerializer(serializers.Serializer):
         name = serializers.CharField(required=True)
@@ -210,21 +219,165 @@ class TrainView(APIView):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.fields['route'] = TrainView.RoutePostInputSerializer(required=True)
-        
     
     def post(self, request, *args, **kwargs):
-        serializer = TrainView.TrainPostInputSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-        
-        train_service = TrainService()
-        train_service.create_train(
-            data=TrainService.CreateTrainInput.from_dict(serializer.validated_data)
-        )
-        
-        return Response({
-            'status': True,
-            'status_code': status.HTTP_200_OK,
-            'result': 'Train created successfully',
-        })
+        try :
+            serializer = TrainView.TrainPostInputSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            with transaction.atomic():
+                train_service = TrainService()
+                train = train_service.get_or_create_train(
+                    name=serializer.validated_data['name'],
+                    number=serializer.validated_data['number'],
+                )
 
+                route = serializer.validated_data['route']
+                train_service.add_routes_to_train(
+                    route_data=TrainService.CreateRouteInput.from_dict(route),
+                    train=train,
+                )
+            
+            return Response({
+                'status': True,
+                'status_code': status.HTTP_200_OK,
+                'result': 'Train created successfully',
+            })
+        except Exception as e:
+            return Response({
+                'status': False,
+                'status_code': status.HTTP_400_BAD_REQUEST,
+                'result': str(e),
+            })
+    
+    class RemoveRouteInputSerializer(serializers.Serializer):
+        route_id = serializers.IntegerField(required=True)
+    
+    @action(detail=True, methods=['post'], url_path='remove-route')
+    def remove_route_from_train(self, request, *args, **kwargs):
+        try :
+            serializer = TrainView.RemoveRouteInputSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            with transaction.atomic():
+                route_id = serializer.validated_data['route_id']
+                train_service = TrainService()
+                train_service.remove_route_from_train(route_id=route_id)
+
+            return Response({
+                'status': True,
+                'status_code': status.HTTP_200_OK,
+                'result': 'Route removed successfully',
+            })
+        except Exception as e:
+            return Response({
+                'status': False,
+                'status_code': status.HTTP_400_BAD_REQUEST,
+                'result': str(e),
+            })
+    
+    class AddScheduleInputSerializer(serializers.Serializer):
+        route_id = serializers.IntegerField(required=True)
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.fields['schedule'] = TrainView.SchedulePostInputSerializer(required=True)
+    
+    @action(detail=True, methods=['post'], url_path='add-schedule')
+    def add_schedule_to_route(self, request, *args, **kwargs):
+        try :
+            serializer = TrainView.AddScheduleInputSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            with transaction.atomic():
+                train_service = TrainService()
+                train = train_service.get_or_create_train(
+                    name=serializer.validated_data['name'],
+                    number=serializer.validated_data['number'],
+                )
+
+                schedule = serializer.validated_data['schedule']
+                train_service.add_schedule_to_route(
+                    train=train,
+                    route_id=serializer.validated_data['route_id'],
+                    schedule=TrainService.CreateScheduleInput.from_dict(schedule),
+                )
+            
+            return Response({
+                'status': True,
+                'status_code': status.HTTP_200_OK,
+                'result': 'Schedule added successfully',
+            })
+        except Exception as e:
+            return Response({
+                'status': False,
+                'status_code': status.HTTP_400_BAD_REQUEST,
+                'result': str(e),
+            })
+        
+    class RemoveScheduleInputSerializer(serializers.Serializer):
+        schedule_id = serializers.IntegerField(required=True)
+
+    @action(detail=True, methods=['post'], url_path='remove-schedule')
+    def remove_schedule_from_route(self, request, *args, **kwargs):
+        try: 
+            serializer = TrainView.RemoveScheduleInputSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            with transaction.atomic():
+                train_service = TrainService()
+                train_service.remove_schedule_from_route(
+                    schedule_id=serializer.validated_data['schedule_id'],
+                )
+            
+            return Response({
+                'status': True,
+                'status_code': status.HTTP_200_OK,
+                'result': 'Schedule removed successfully',
+            })  
+        except Exception as e:
+            return Response({
+                'status': False,
+                'status_code': status.HTTP_400_BAD_REQUEST,
+                'result': str(e),
+            })
+        
+    class UpdateStopsInputSerializer(serializers.Serializer):
+        route_id = serializers.IntegerField(required=True)
+        
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.fields['stops'] = TrainView.StopListInputSerializer(required=True)
+
+    @action(detail=True, methods=['post'], url_path='update-stops')
+    def update_stops_of_route(self, request, *args, **kwargs):
+        try :
+            serializer = TrainView.UpdateStopsInputSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+            with transaction.atomic():
+                train_service = TrainService()
+                train_service.update_stops_of_route(
+                    route_id=serializer.validated_data['route_id'],
+                    stops=[
+                        TrainService.CreateStopInput.from_dict(stop)
+                        for stop in serializer.validated_data['stops']
+                    ],
+                )
+            
+            return Response({
+                'status': True, 
+                'status_code': status.HTTP_200_OK,
+                'result': 'Stops updated successfully',
+            })
+        except Exception as e:
+            return Response({
+                'status': False,
+                'status_code': status.HTTP_400_BAD_REQUEST,
+                'result': str(e),
+            })

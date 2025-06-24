@@ -1,4 +1,3 @@
-from django.shortcuts import render
 from rest_framework import status
 from django.contrib.auth.models import User
 from rest_framework.response import Response
@@ -6,8 +5,8 @@ from rest_framework.decorators import api_view
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
-from rest_framework import serializers
 from .serializers import UserSerializers
+from rest_framework import serializers
 
 
 class RegisterInputSerializer(serializers.Serializer):
@@ -30,11 +29,11 @@ class RegisterInputSerializer(serializers.Serializer):
 @api_view(['POST'])
 @csrf_exempt
 def register_view(request):
-    serializer = RegisterInputSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
     try:
+        serializer = RegisterInputSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
         user = User.objects.create_user(
             email=serializer.validated_data['email'],
             username=serializer.validated_data['username'],
@@ -68,50 +67,71 @@ class LoginInputSerializer(serializers.Serializer):
 @api_view(['POST'])
 @csrf_exempt
 def login_view(request):
-    serializer = LoginInputSerializer(data=request.data)
-    if not serializer.is_valid():
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    try :
+        serializer = LoginInputSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    username = serializer.validated_data['username']
-    password = serializer.validated_data['password']
-    
-    user = authenticate(request, username=username, password=password)
-    
-    if user is not None:
-        login(request, user)
-        return Response({
-            'status': True,
-            'status_code': status.HTTP_200_OK,
-            'result': {
-                'message': 'Login successful',
-                'user': UserSerializers.ModelSerializer(user).data
-            }
-        })
-    else:
+        username = serializer.validated_data['username']
+        password = serializer.validated_data['password']
+        
+        user = authenticate(request, username=username, password=password)
+        
+        if user is not None:
+            login(request, user)
+            return Response({
+                'status': True,
+                'status_code': status.HTTP_200_OK,
+                'result': {
+                    'message': 'Login successful',
+                    'user': UserSerializers.ModelSerializer(user).data
+                }
+            })
+        else:
+            return Response({
+                'status': False,
+                'status_code': status.HTTP_401_UNAUTHORIZED,
+                'result': 'Invalid username or password'
+            })
+    except Exception as e:
         return Response({
             'status': False,
-            'status_code': status.HTTP_401_UNAUTHORIZED,
-            'result': 'Invalid username or password'
+            'status_code': status.HTTP_400_BAD_REQUEST,
+            'result': str(e),
         })
 
 
 @api_view(['POST'])
 @login_required
 def logout_view(request):
-    logout(request)
-    return Response({
-        'status': True,
-        'status_code': status.HTTP_200_OK,
-        'result': 'Logout successful'
-    })
+    try :
+        logout(request)
+        return Response({
+            'status': True,
+            'status_code': status.HTTP_200_OK,
+            'result': 'Logout successful'
+        })
+    except Exception as e:
+        return Response({
+            'status': False,
+            'status_code': status.HTTP_400_BAD_REQUEST,
+            'result': str(e),
+        })
 
 
 @api_view(['GET'])
 @login_required
 def details_view(request):
-    user: User = request.user
-    return Response({
-        'status': True,
-        'status_code': status.HTTP_200_OK,
-        'result': UserSerializers.ModelSerializer(user).data
-    })
+    try :
+        user: User = request.user
+        return Response({
+            'status': True,
+            'status_code': status.HTTP_200_OK,
+            'result': UserSerializers.ModelSerializer(user).data
+        })
+    except Exception as e:
+        return Response({
+            'status': False,
+            'status_code': status.HTTP_400_BAD_REQUEST,
+            'result': str(e),
+        })

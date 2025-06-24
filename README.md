@@ -1,5 +1,7 @@
 # Train Booking System
 
+> **📝 Note**:Before reading, just know. I made this documentation using AI, for better and thorough explaination, and obviously for faster documentation, because you all know, how time taking and tiring it can be making a thorough documentations. Uff, all those lines.!
+
 ## Quick Start
 
 ### **Option 1: Use Pre-populated SQLite Database** (Recommended)
@@ -48,6 +50,22 @@ curl -X GET http://localhost:8000/auth/details/ \
 - **Admin Panel**: http://localhost:8000/admin/ (admin/admin123)
 - **API Endpoints**: http://localhost:8000/api/
 - **Test User**: testuser/test123
+
+## Features
+
+### **User Features**
+
+- 🔍 **View Trains**: Browse available trains and routes
+- 🎫 **Book Tickets**: Make bookings
+- ❌ **Cancel Bookings**: Cancel existing reservations
+- 📋 **Booking History**: View all past and current bookings
+
+### **Admin Features**
+
+- 🚂 **Train Management**: Add new trains with numbers and names
+- 🛤️ **Route Management**: Add or remove train routes
+- 🚉 **Stop Configuration**: Updates stops with timing and distance details, of route
+- 📅 **Schedule Management**: Add or remove train schedules for different weekdays, of different routes
 
 ## Project Overview & Assumptions
 
@@ -136,18 +154,13 @@ curl -X GET http://localhost:8000/auth/details/ \
 #### **Data Integrity & Code Modularity**
 
 - **Database Transactions**: Used to maintain data integrity during complex operations
-- **Serializers**: Django REST Framework serializers for API data validation
-- **Dataclasses**: Used for structured data handling and type safety
+- **Query Logger**: Implemented for performance optimization and database query monitoring
+- **Custom Serializers**: Specialized serializers including journey date serializer for data validation
 - **Base Utils**: Modular utility classes for common operations across apps
-  - Model utilities for common fields and behaviors
-  - Selector utilities for optimized database queries
-  - Pagination utilities for API responses
-
-### Development Setup
-
-### Development Notes
-
-- **AI Assistance**: Used AI tools for generating realistic dummy data and documentation and management commands.
+  - **Base Model**: Common model fields and behaviors (created_at, updated_at, etc.)
+  - **Base Selectors**: Optimized database query patterns and reusable query logic
+  - **Custom Paginator**: Standardized pagination across API responses
+  - **Querying Class Wrapper**: Abstraction layer for complex database operations
 
 ## Database Analysis Commands
 

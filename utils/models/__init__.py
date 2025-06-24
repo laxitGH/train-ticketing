@@ -7,8 +7,8 @@ class ModelUtils:
     class BaseModel(models.Model):
         id = models.BigAutoField(primary_key=True)
         deleted = models.BooleanField(default=False)
-        created_at = models.DateTimeField(null=False, blank=False)
-        updated_at = models.DateTimeField(null=False, blank=False)
+        created_at = models.DateTimeField(null=False, blank=False, auto_now_add=True)
+        updated_at = models.DateTimeField(null=False, blank=False, auto_now=True)
         metadata = models.JSONField(default=dict)
 
         class NonDeletedManager(models.Manager):
@@ -17,12 +17,6 @@ class ModelUtils:
 
         all_objects = models.Manager()
         objects = NonDeletedManager()
-
-        def save(self, *args, **kwargs):
-            if not self.created_at:
-                self.created_at = timezone.now()
-            self.updated_at = timezone.now()
-            super().save(*args, **kwargs)
 
         class Meta:
             abstract = True

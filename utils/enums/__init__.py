@@ -18,3 +18,17 @@ class BookingStatus(Enum):
     @classmethod
     def choices(cls):
         return [(item.value, item.value) for item in cls]
+    
+
+class Weekday(Enum):
+    MON = 'MON'
+    TUE = 'TUE'
+    WED = 'WED'
+    THU = 'THU'
+    FRI = 'FRI'
+    SAT = 'SAT'
+    SUN = 'SUN'
+
+    @classmethod
+    def choices(cls):
+        return [(item.value, item.value) for item in cls]

@@ -7,10 +7,10 @@ from trains.services import JourneySearchService
 from utils.enums import BookingStatus, BookingType
 from utils.serializers import JourneyDateSerializer
 from bookings.serializers import BookingsSerializers
-from trains.dataclasses import JourneySearchServiceDataclasses
 from django.contrib.auth.decorators import login_required
 from trains.selectors import ScheduleSelectors
 from django.contrib.auth.models import User
+from utils.pagination import Paginator
 from utils.queries import QueryUtils
 from bookings.models import Booking
 from django.db import transaction
@@ -40,7 +40,7 @@ def booking_create_view(request):
 
     with transaction.atomic():
         journey_search_service = JourneySearchService(
-            input=JourneySearchServiceDataclasses.Input(
+            input=JourneySearchService.Input(
                 journey_date=journey_date,
                 source_station_code=serializer.validated_data['source_station_code'],
                 destination_station_code=serializer.validated_data['destination_station_code'],
@@ -187,10 +187,8 @@ def booking_details_view(request, booking_id: int):
 @QueryUtils.log_queries
 def user_bookings_list_view(request):
     user: User = request.user
+    paginator = Paginator()
     user_bookings = Booking.objects.filter(user=user).order_by('-created_at')
-    serialized_data = BookingsSerializers.ModelSerializer(user_bookings, many=True).data
-    return Response({
-        'status': True,
-        'status_code': status.HTTP_200_OK,
-        'result': serialized_data,
-    })
+    paginated_user_bookings = paginator.paginate_queryset(user_bookings, request)
+    serialized_data = BookingsSerializers.ModelSerializer(paginated_user_bookings, many=True).data
+    return paginator.get_paginated_response(serialized_data)

@@ -37,7 +37,7 @@ class TrainSelectors(BaseSelectors):
                         ),
                         Prefetch(
                             'schedules_of_route',
-                            queryset=schedules_queryset,
+                            queryset=schedules_queryset.all(),
                         ),
                     ),
                 )
